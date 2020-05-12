@@ -99,7 +99,7 @@ def check_user(func):
     return wrapper
 
 TOKEN = os.getenv('SIMULATOR_TOKEN')
-bot = commands.Bot(command_prefix='-sim-')
+bot = commands.Bot(command_prefix='-sim-', description="I am a horrible, twisted version of your guild. FEAR ME.\nFor suggestions and bug reports, create an issue on my github: https://github.com/caydenreynolds/Discord-bots")
 
 # @bot.event
 # @check_user
