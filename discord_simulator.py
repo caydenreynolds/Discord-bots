@@ -6,26 +6,62 @@ from discord.utils import find
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy import Column, Integer, BigInteger, ARRAY
+from sqlalchemy import Column, Integer, BigInteger, ARRAY, String
 
 Base = declarative_base()
 engine = create_engine(os.getenv('SIMULATOR_DB'))
 Session = sessionmaker(bind=engine)
 
-class MarkovNode(Base):
-    __tablename__ = 'nodes'
-    id = Column(Integer, primary_key=True)
-    word = Column(String)
-    count = Column(BigInteger)
-    next = ARRAY(Integer)
-    next_count = ARRAY(Integer)
+def ProbabilityTupleFactory(member):
+    class ProbabilityTuple(Base):
+        __tablename__ = f'probabilities_{member.id}_{member.guild.id}'
+        id = Column(Integer, primary_key=True)
+        node_id = Column(Integer)
+        probability = Column(Integer)
 
-Base.metadata.create_all(engine)
-
-def increment_snipes(member):
+    Base.metadata.create_all()
     session = Session()
-    db_member = session.query(BeeSting).filter_by(user_id=member.id, guild=member.guild.id).one_or_none() or\
-                BeeSting(user_id=member.id, sting_count=0, guild=member.guild.id)
+    session.query(PresentMembers).filter_by(user_id=member.id, guild=member.guild.id).one_or_none() or\
+        session.add(PresentMembers(user_id=member.id, guild=member.guild.id))
+    session.commit()
+    session.close()
+    return ProbabilityTuple
+
+def MarkovNodeFactory(member):
+    class MarkovNode(Base):
+        __tablename__ = f'nodes_{member.id}_{member.guild.id}'
+        id = Column(Integer, primary_key=True)
+        word = Column(String)
+        count = Column(BigInteger)
+        probabilities = ARRAY(ProbabilityTupleFactory(member))
+    return MarkovNode
+
+    Base.metadata.create_all()
+
+class PresentMembers(Base):
+    __tablename__ = 'present_member'
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer)
+    guild = Column(Integer)
+
+#Initialize database
+#node id 1 is a special node that signifies the end of the message
+def init_db():
+    Base.metadata.create_all(engine)
+    session = Session()
+    try:
+        if not session.query(MarkovNode).filter_by(id=1).one_or_none():
+            session.add(MarkovNode())
+    finally:
+        session.commit()
+        session.close()
+
+def increment_words(member, message):
+    session = Session()
+    sim_member = session.query(SimulatedMember).filter_by(user_id=member.id, guild=member.guild.id).one_or_none() or\
+                SimulatedMember(member.id, member.guild)
+    
+    for i in range(len(message)-1):
     try:
         session.add(db_member)
     except Exception:
@@ -52,38 +88,34 @@ def get_stings(member):
         session.commit()
         session.close()
 
-def get_leaderboard(session, guild):
-    return session.query(BeeSting).filter_by(guild=guild.id).order_by(BeeSting.sting_count.asc()).all()
-
-"""Ensure we never reply to our own messages"""
+"""Ensure we never record bot messages"""
 def check_user(func):
     @wraps(func)
     async def wrapper(*args, **kwargs):
-        if args[0].author == bot.user:
+        if args[0].author.bot:
             return
         else:
             await func(*args, **kwargs)
     return wrapper
 
-TOKEN = os.getenv('BEE_TOKEN')
+TOKEN = os.getenv('SIMULATOR_TOKEN')
+bot = commands.Bot(command_prefix='-sim-')
 
-bot = commands.Bot(command_prefix='-bee-')
-
-@bot.event
-@check_user
-async def on_message(message):
-    content = message.content.lower()
-    message_words = content.split()
-    message_triplets = []
-    for index in range(len(message_words)-2):
-        message_triplets.append(' '.join(message_words[index:index+3]).strip())
-    for line in lines:
-        for triplet in message_triplets:
-            if triplet in line:
-                increment_snipes(message.author)
-                await message.channel.send(line)
-                return
-    await bot.process_commands(message)
+# @bot.event
+# @check_user
+# async def on_message(message):
+#     content = message.content.lower()
+#     message_words = content.split()
+#     message_triplets = []
+#     for index in range(len(message_words)-2):
+#         message_triplets.append(' '.join(message_words[index:index+3]).strip())
+#     for line in lines:
+#         for triplet in message_triplets:
+#             if triplet in line:
+#                 increment_snipes(message.author)
+#                 await message.channel.send(line)
+#                 return
+#     await bot.process_commands(message)
 
 @bot.command(name='stings', help="See how many times you've been stung. Give me user's name to inspect them instead")
 async def snipes(ctx, *args):
@@ -107,5 +139,6 @@ async def on_command_error(ctx, exception):
     await ctx.channel.send("I'm sorry, I don't understand that command")
     raise exception
 
+init_db()
 print("Starting up...")
 bot.run(TOKEN)

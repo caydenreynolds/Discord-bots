@@ -42,7 +42,7 @@ def increment_snipes(member):
 
 def get_stings(member):
     if not member:
-        return f"I can't find that user"
+        return "I can't find that user"
     session = Session()
     try:
         db_member = session.query(BeeSting).filter_by(user_id=member.id, guild=member.guild.id).one()
@@ -73,7 +73,7 @@ def check_user(func):
 
 TOKEN = os.getenv('BEE_TOKEN')
 
-bot = commands.Bot(command_prefix='-bee-')
+bot = commands.Bot(command_prefix='-bee-', description='Ever wondered when you accidentally quote the Bee Movie? Well wonder no more!\nFor suggestions and bug reports, create an issue on my github: https://github.com/caydenreynolds/Discord-bots')
 
 @bot.event
 @check_user
