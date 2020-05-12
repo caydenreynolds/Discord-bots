@@ -89,7 +89,8 @@ async def on_message(message):
         for triplet in message_triplets:
             if triplet in line_ignore_punctuation:
                 increment_snipes(message.author)
-                await message.channel.send(line)
+                prefix, match, suffix = line.partition(triplet)
+                await message.channel.send(f"{prefix} **{match}** {suffix}")
                 return
     await bot.process_commands(message)
 
