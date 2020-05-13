@@ -2,6 +2,8 @@ import string
 from functools import wraps
 from sqlalchemy import Column, Integer
 from sqlalchemy.ext.declarative import declared_attr
+from discord.utils import find
+
 
 """Ensure we ignore our own messages"""
 def ignore_self(bot):
@@ -27,6 +29,9 @@ def ignore_bots(func):
 
 def remove_punctuation(punctuated_string):
     return punctuated_string.translate(str.maketrans('', '', string.punctuation))
+
+def get_user_from_name(name, guild):
+    return find(lambda m: m.nick == name if m.nick else m.name == name, guild.members)
 
 class BaseMixin:
     @declared_attr

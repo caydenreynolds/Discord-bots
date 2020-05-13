@@ -1,17 +1,19 @@
+import asyncio
 import os
-import time
-import sched
-from random import seed, randint, choice
-from discord.ext import commands
-from discord.utils import find
+import subprocess
+from io import BytesIO
+from random import choice, randint, seed
+from shutil import which
 
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, relationship
-from sqlalchemy.ext.declarative import declared_attr
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy import Column, Integer, BigInteger, ForeignKey, String
+import discord
+from discord.ext import commands, tasks
+from PIL import Image
+from sqlalchemy import (BigInteger, Column, ForeignKey, Integer, String,
+                        create_engine)
+from sqlalchemy.ext.declarative import declarative_base, declared_attr
+from sqlalchemy.orm import relationship, sessionmaker
 
-from bot_utils import ignore_bots, BaseMixin, MemberMixin
+from bot_utils import BaseMixin, MemberMixin, get_user_from_name, ignore_bots
 
 Base = declarative_base()
 engine = create_engine(os.getenv('SIMULATOR_DB'))
@@ -23,10 +25,11 @@ MESSAGE_END = """MESSAGE_END_r>CX4XuxV1D\;Zron,yl@Qx;,9CMy[``t.H(@#pvz.I_kNREq#"
 SIM_LENGTH_MIN = 20
 SIM_LENGTH_MAX = 50
 SIM_TIME_MIN = 5
-SIM_TIME_MAX = 10
+SIM_TIME_MAX = 9
+
+SCHEDULE_FREQUENCY = 60 * 60 * 6 #six hours
 
 seed()
-scheduler = sched.scheduler(time.time, time.sleep)
 
 class ProbabilityTuple(BaseMixin, Base):
     parent_node_id = Column(Integer, ForeignKey('markovnode.id'))
@@ -86,7 +89,36 @@ class SimulatedMember(MemberMixin, BaseMixin, Base):
     def get_start_node(self, session):
         return MarkovNode.get(MESSAGE_START, self, session)
 
+class Channel(BaseMixin, Base):
+    channel_id = Column(Integer)
+
 Base.metadata.create_all(engine)
+
+bot = commands.Bot(command_prefix='-sim-', description="I am a horrible, twisted version of your guild. FEAR ME.\nFor suggestions and bug reports, create an issue on my github: https://github.com/caydenreynolds/Discord-bots")
+
+class ScheduledSimsCog(commands.Cog):
+    def __init__(self):
+        self.schedule_sim.start()
+
+    @tasks.loop(seconds=SCHEDULE_FREQUENCY)
+    async def schedule_sim(self):
+        try:
+            await bot.wait_until_ready()
+            session = Session()
+            channels=[]
+            for channel in session.query(Channel).all():
+                c = bot.get_channel(channel.channel_id)
+                if c:
+                    channels.append(c)
+                else:
+                    session.delete(channel)
+            session.commit()
+            session.close()
+            for channel in channels:
+                await simulate(channel)
+        except Exception as e:
+            pass
+
 
 def increment_words(member, message):
     session = Session()
@@ -117,8 +149,14 @@ def create_message(member):
     session.close()
     return message
 
-TOKEN = os.getenv('SIMULATOR_TOKEN')
-bot = commands.Bot(command_prefix='-sim-', description="I am a horrible, twisted version of your guild. FEAR ME.\nFor suggestions and bug reports, create an issue on my github: https://github.com/caydenreynolds/Discord-bots")
+async def simulate(channel):
+    available_members = get_sim_members(channel.guild)
+    for i in range(randint(SIM_LENGTH_MIN, SIM_LENGTH_MAX)):
+        async with channel.typing():
+            await asyncio.sleep(randint(SIM_TIME_MIN, SIM_TIME_MAX))
+            chosen_member = choice(available_members)
+            message = create_message(chosen_member)
+            await channel.send(message)
 
 @bot.event
 @ignore_bots
@@ -129,20 +167,23 @@ async def on_message(message):
 
 @bot.command(name='start', help="Begin a simulated conversation")
 async def start(ctx):
-    available_members = get_sim_members(ctx.guild)
-    for i in range(randint(SIM_LENGTH_MIN, SIM_LENGTH_MAX)):
-        with ctx.channel.typing():
-            scheduler.enter(, 2, create_message, arguments=(chosen_member,)
-            chosen_member = choice(available_members)
-            message = create_message(chosen_member)
-            time.sleep(randint(SIM_TIME_MIN, SIM_TIME_MAX))
-            await ctx.channel.send(message)
+    await simulate(ctx.channel)
 
-@bot.command(name='get', help="Begin a simulated conversation")
-async def get(ctx):
+@bot.command(name='schedule', help="Schedule a simulation to occur periodically in this channel. Use '-sim-schedule stop' to stop simulations in this channel")
+async def schedule(ctx, *args):
     session = Session()
-    node = MarkovNode.get('is', SimulatedMember.get(ctx.author, session), session)
-    print(len(node.probabilities))
+    if len(args) == 0:
+        if session.query(Channel).filter_by(channel_id=ctx.channel.id).one_or_none():
+            await ctx.channel.send("Simulations are already scheduled")
+        else:
+            await ctx.channel.send("Scheduling simulations in this channel!")
+            session.add(Channel(channel_id=ctx.channel.id))
+    elif args[0] == 'stop' and session.query(Channel).filter_by(channel_id=ctx.channel.id).one_or_none():
+        session.query(Channel).filter_by(channel_id=ctx.channel.id).delete()
+        await ctx.channel.send("Stopping simulations in this channel!")
+    else:
+        await ctx.channel.send("I don't quite understand you. Did you mean '-sim-schedule stop'?")
+
     session.commit()
     session.close()
 
@@ -151,5 +192,7 @@ async def on_command_error(ctx, exception):
     await ctx.channel.send("I'm sorry, I don't understand that command")
     raise exception
 
+bot.add_cog(ScheduledSimsCog())
+TOKEN = os.getenv('SIMULATOR_TOKEN')
 print("Starting up...")
 bot.run(TOKEN)

@@ -13,7 +13,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy import Column, Integer
 
-from bot_utils import ignore_self, remove_punctuation, BaseMixin, MemberMixin
+from bot_utils import ignore_self, remove_punctuation, BaseMixin, MemberMixin, get_user_from_name
 
 Base = declarative_base()
 engine = create_engine(os.getenv('BEE_DB'))
@@ -83,7 +83,7 @@ async def stings(ctx, *args):
     if len(args) == 0:
         await ctx.channel.send(get_stings(ctx.author))
     else:
-        await ctx.channel.send(get_stings(find(lambda m: m.nick == args[0] if m.nick else m.name == args[0], ctx.guild.members)))
+        await ctx.channel.send(get_stings(get_user_from_name(args[0], ctx.guild)))
 
 @bot.command(name="ranking", help="See the sting rankings")
 async def leaderboard(ctx):

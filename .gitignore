@@ -134,4 +134,5 @@ dmypy.json
 #databases
 *.db
 
+client_secrets.json
 
