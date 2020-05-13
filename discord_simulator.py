@@ -1,5 +1,6 @@
 import os
 import time
+import sched
 from random import seed, randint, choice
 from discord.ext import commands
 from discord.utils import find
@@ -21,10 +22,11 @@ MESSAGE_END = """MESSAGE_END_r>CX4XuxV1D\;Zron,yl@Qx;,9CMy[``t.H(@#pvz.I_kNREq#"
 
 SIM_LENGTH_MIN = 20
 SIM_LENGTH_MAX = 50
-SIM_TIME_MIN = 2
-SIM_TIME_MAX = 5
+SIM_TIME_MIN = 5
+SIM_TIME_MAX = 10
 
 seed()
+scheduler = sched.scheduler(time.time, time.sleep)
 
 class ProbabilityTuple(BaseMixin, Base):
     parent_node_id = Column(Integer, ForeignKey('markovnode.id'))
@@ -130,6 +132,7 @@ async def start(ctx):
     available_members = get_sim_members(ctx.guild)
     for i in range(randint(SIM_LENGTH_MIN, SIM_LENGTH_MAX)):
         with ctx.channel.typing():
+            scheduler.enter(, 2, create_message, arguments=(chosen_member,)
             chosen_member = choice(available_members)
             message = create_message(chosen_member)
             time.sleep(randint(SIM_TIME_MIN, SIM_TIME_MAX))
