@@ -69,12 +69,23 @@ async def on_message(message):
     for index in range(len(message_words)-2):
         message_triplets.append(' '.join(message_words[index:index+3]).strip())
     for line in lines:
-        line_ignore_punctuation = remove_punctuation(line)
+        line_ignore_punctuation = f' {remove_punctuation(line)} '
         for triplet in message_triplets:
+            triplet = f' {triplet} '
             if triplet in line_ignore_punctuation:
                 increment_stings(message.author)
-                prefix, match, suffix = line.partition(triplet)
-                await message.channel.send(f"{prefix}**{match}**{suffix}")
+                prefix, _, suffix = line_ignore_punctuation.partition(triplet)
+                """Estimate the correct place for bolding.
+                Do this by counting the number of characters before the punctuation removed match.
+                Then we take that number of characters from the original, plus all the punctuation we find in that length.
+                Do the same thing at the end. Bold everything between the two.
+                """
+                prefix_index = 2*(len(prefix)-1) - len(remove_punctuation(line[:len(prefix)-1]))
+                suffix_index = 2*(len(suffix)) - len(remove_punctuation(line[-len(suffix):]))
+                
+                reply = f'{line[:prefix_index]}**{line[prefix_index:-suffix_index]}**{line[-suffix_index:]}' 
+
+                await message.channel.send(reply)
                 return
     await bot.process_commands(message)
 
