@@ -1,13 +1,13 @@
 import asyncio
 import os
 import subprocess
+import traceback
 from io import BytesIO
-from random import choice, randint, seed
+from random import choices, randint, seed
 from shutil import which
 
 import discord
 from discord.ext import commands, tasks
-from PIL import Image
 from sqlalchemy import (BigInteger, Column, ForeignKey, Integer, String,
                         create_engine)
 from sqlalchemy.ext.declarative import declarative_base, declared_attr
@@ -39,9 +39,9 @@ class ProbabilityTuple(BaseMixin, Base):
 class MarkovNode(MemberMixin, BaseMixin, Base):
     word = Column(String)
     count = Column(BigInteger)
-    probabilities = relationship('ProbabilityTuple', lazy='subquery')
+    probabilities = relationship('ProbabilityTuple', backref="parent_node", cascade="delete, delete-orphan")
     sim_member_id = Column(Integer, ForeignKey('simulatedmember.id'))
-    sim_member = relationship('SimulatedMember', uselist=False, lazy='subquery')
+    sim_member = relationship('SimulatedMember', uselist=False)
 
     def __init__(self, sim_member=None, word='', count=0):
         self.count = count
@@ -112,12 +112,15 @@ class ScheduledSimsCog(commands.Cog):
                     channels.append(c)
                 else:
                     session.delete(channel)
-            session.commit()
-            session.close()
             for channel in channels:
-                await simulate(channel)
+                await simulate(channel, session)
         except Exception as e:
-            pass
+            traceback.print_exc()
+            session.rollback()
+        else:
+            session.commit()
+        finally:
+            session.close()
 
 
 def increment_words(member, message):
@@ -130,32 +133,33 @@ def increment_words(member, message):
     session.commit()
     session.close()
 
-def get_sim_members(guild):
-    session = Session()
+def get_sim_members(guild, session):
     simulated_member_ids = [sim_member.member_id for sim_member in SimulatedMember.get_guild_members(guild, session)]
     result = [member for member in guild.members if member.id in simulated_member_ids]
-    session.commit()
-    session.close()
     return result
 
-def create_message(member):
-    session = Session()
+def get_start_nodes(members, session):
+    start_nodes = []
+    for member in members:
+        sim_member = SimulatedMember.get(member, session)
+        start_nodes.append(MarkovNode.get(MESSAGE_START, sim_member, session))
+    return start_nodes
+
+def create_message(member, session):
     words = [SimulatedMember.get(member, session).get_start_node(session)]
     while words[-1].word != MESSAGE_END:
         words.append(words[-1].choose_next_word(session))
     message = ' '.join([word.word for word in words[1:-1]])
     message = f'{member.nick or member.name}:\n    {message}'
-    session.commit()
-    session.close()
     return message
 
-async def simulate(channel):
-    available_members = get_sim_members(channel.guild)
-    for i in range(randint(SIM_LENGTH_MIN, SIM_LENGTH_MAX)):
+async def simulate(channel, session):
+    available_members = get_sim_members(channel.guild, session)
+    start_nodes = get_start_nodes(available_members, session)
+    for chosen_member in choices(available_members, weights=[node.count for node in start_nodes], k=randint(SIM_LENGTH_MIN, SIM_LENGTH_MAX)):
         async with channel.typing():
             await asyncio.sleep(randint(SIM_TIME_MIN, SIM_TIME_MAX))
-            chosen_member = choice(available_members)
-            message = create_message(chosen_member)
+            message = create_message(chosen_member, session)
             await channel.send(message)
 
 @bot.event
@@ -167,7 +171,10 @@ async def on_message(message):
 
 @bot.command(name='start', help="Begin a simulated conversation")
 async def start(ctx):
-    await simulate(ctx.channel)
+    session = Session()
+    await simulate(ctx.channel, session)
+    session.commit()
+    session.close()
 
 @bot.command(name='schedule', help="Schedule a simulation to occur periodically in this channel. Use '-sim-schedule stop' to stop simulations in this channel")
 async def schedule(ctx, *args):
