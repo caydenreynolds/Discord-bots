@@ -1,6 +1,7 @@
 import asyncio
 import os
 import subprocess
+import traceback
 from io import BytesIO
 from random import choice, randint, seed
 from shutil import which
@@ -28,6 +29,7 @@ SIM_TIME_MIN = 5
 SIM_TIME_MAX = 9
 
 SCHEDULE_FREQUENCY = 60 * 60 * 6 #six hours
+PRUNE_FREQUENCY = 60 * 60 * 24 * 7 * 4 #4 weeks
 
 seed()
 
@@ -41,7 +43,7 @@ class MarkovNode(MemberMixin, BaseMixin, Base):
     count = Column(BigInteger)
     probabilities = relationship('ProbabilityTuple', lazy='subquery')
     sim_member_id = Column(Integer, ForeignKey('simulatedmember.id'))
-    sim_member = relationship('SimulatedMember', uselist=False, lazy='subquery')
+    sim_member = relationship('SimulatedMember', uselist=False, lazy='subquery', backref="parent_node", cascade="delete, delete-orphan")
 
     def __init__(self, sim_member=None, word='', count=0):
         self.count = count
@@ -99,12 +101,13 @@ bot = commands.Bot(command_prefix='-sim-', description="I am a horrible, twisted
 class ScheduledSimsCog(commands.Cog):
     def __init__(self):
         self.schedule_sim.start()
+        self.prune.start()
 
     @tasks.loop(seconds=SCHEDULE_FREQUENCY)
     async def schedule_sim(self):
+        await bot.wait_until_ready()
+        session = Session()
         try:
-            await bot.wait_until_ready()
-            session = Session()
             channels=[]
             for channel in session.query(Channel).all():
                 c = bot.get_channel(channel.channel_id)
@@ -118,6 +121,81 @@ class ScheduledSimsCog(commands.Cog):
                 await simulate(channel)
         except Exception as e:
             pass
+        finally:
+            session.commit()
+            session.close()
+
+    @tasks.loop(seconds=PRUNE_FREQUENCY)
+    async def prune(self):
+        """Prune words only said one time from the database. Do this in order to reduce the database size and steps during message generation"""
+        await bot.wait_until_ready()
+        session = Session()
+        scheduled_deletes = []
+        try:
+            print("starting prune")
+            #Find nodes to baleet
+            for member in session.query(SimulatedMember).all():
+                for node in session.query(MarkovNode).filter_by(sim_member=member).all():
+                    for i in range(len(node.probabilities)):
+                        probability = node.probabilities[i]
+                        if probability.count == 1:
+                            destination_node = session.query(MarkovNode).filter_by(id=probability.node_id).one()
+                            if destination_node.count == 1:
+                                node.count -= probability.count
+                                node.probabilities.pop(i)
+                                destination_node.delete()
+
+            #baleet the nodes
+            for scheduled_delete in scheduled_deletes:delete(node)
+                probability_node, destination_node = scheduled_delete
+                for probability in probability_node.probabilities:
+                    if probability.node_id == destination_node.id:
+                        probability_to_remove = probability
+                        break
+                probability_node.count -= 1
+                probability_node.probabilities.remove(probability_to_remove)
+                session.delete(probability_to_remove)
+                session.delete(destination_node)
+
+                if probability_node.count == 0:
+                    #ope, this node is invalid now. We have to baleet it
+                    try:
+                        self.remove_node(probability_node, session)
+                    except self.AllNodesDeleted:
+                        pass
+
+        except Exception as e:
+            traceback.print_exc()
+        finally:
+            session.commit()
+            session.close()
+            print('finished!')
+
+    def remove_node(self, node, session):
+        member = node.sim_member
+        if node.word == MESSAGE_START:
+            session.query(MarkovNode).filter_by(sim_member=member).delete()
+            session.delete(member)
+            raise self.AllNodesDeleted()
+        else:
+            nodes = session.query(MarkovNode).filter_by(sim_member=member).all()
+            for parent_node in nodes:
+                if len(parent_node.probabilities) == 1 and parent_node.probabilities[0].node_id == node.id:
+                    self.remove_node(parent_node, session)
+                else:
+                    probability_to_remove = None
+                    for probability in parent_node.probabilities:
+                        if probability.node_id == node.id:
+                            probability_to_remove = probability
+                            breaktha
+                    if probability_to_remove:
+                        node.count -= probability_to_remove.count
+                        node.probabilities.remove(probability_to_remove)
+                        session.delete(probability_to_remove)
+            session.delete(node)
+
+    class AllNodesDeleted(Exception):
+        pass
 
 
 def increment_words(member, message):
