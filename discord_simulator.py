@@ -2,6 +2,7 @@ import asyncio
 import os
 import subprocess
 import traceback
+from time import time
 from io import BytesIO
 from random import choices, randint, seed
 from shutil import which
@@ -179,8 +180,13 @@ async def simulate(channel, session):
     start_nodes = get_start_nodes(available_members, session)
     for chosen_member in choices(available_members, weights=[node.count for node in start_nodes], k=randint(SIM_LENGTH_MIN, SIM_LENGTH_MAX)):
         async with channel.typing():
-            await asyncio.sleep(randint(SIM_TIME_MIN, SIM_TIME_MAX))
+            start_time = time()
             message = create_message(chosen_member, channel.guild, session)
+            try:
+                await asyncio.sleep(-(time() - start_time - randint(SIM_TIME_MIN, SIM_TIME_MAX)))
+            except Exception:
+                pass
+            
             await channel.send(message)
 
 @bot.event
