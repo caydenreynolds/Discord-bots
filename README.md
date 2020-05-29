@@ -16,6 +16,6 @@ Some bots require a database to store information. You're going to need to set a
 2. SIMULATOR_DB
 
 You'll need a few packages:
-```pip install discord, sqlalchemy```
+```pip install discord, sqlalchemy, prettytable```
 
 Once you've completed these steps, simply run the python script for your bot, add the bot to your guild, and profit
