@@ -146,20 +146,22 @@ def get_start_nodes(members, session):
     return start_nodes
 
 def prevent_pings(word, guild, session):
-    if word[0] == '<' and word[-1] == '>' and word[2] == '@':
-        if word[3] == '!':
-            try:
-                member = get_user_from_id(word[3:-1], guild)
+    if word[0] == '<' and word[-1] == '>' and word[1] == '@':
+        if word[2] == '!':
+            member = get_user_from_id(int(word[3:-1]), guild)
+            if member:
                 name = member.nick or member.name
                 return f'@{name}'
-            except Exception:
-                return '@REMOVED_USER'
-        elif word[3] =='&':
-            try:
-                role = get_role_from_id(word[3:-1], guild)
+            else:
+                return '@REMOVED_USER' + word
+        elif word[2] =='&':
+            role = get_role_from_id(int(word[3:-1]), guild)
+            if role:
                 return f'@{role.name}'
-            except Exception:
-                return '@REMOVED_ROLE'
+            else:
+                return '@REMOVED_ROLE' + word
+    elif word == '@everyone' or word == '@here':
+        return f"{word[0]}'{word[1:]}"
     else:
         return word
 
