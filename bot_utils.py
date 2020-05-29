@@ -33,6 +33,12 @@ def remove_punctuation(punctuated_string):
 def get_user_from_name(name, guild):
     return find(lambda m: m.nick == name if m.nick else m.name == name, guild.members)
 
+def get_user_from_id(user_id, guild):
+    return find(lambda m: m.id == user_id, guild.members)
+
+def get_role_from_id(role_id, guild):
+    return find(lambda r: r.id == role_id, guild.roles)
+
 class BaseMixin:
     @declared_attr
     def __tablename__(cls):

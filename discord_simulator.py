@@ -14,7 +14,7 @@ from sqlalchemy import (BigInteger, Column, ForeignKey, Integer, String,
 from sqlalchemy.ext.declarative import declarative_base, declared_attr
 from sqlalchemy.orm import relationship, sessionmaker
 
-from bot_utils import BaseMixin, MemberMixin, get_user_from_name, ignore_bots
+from bot_utils import BaseMixin, MemberMixin, get_user_from_name, ignore_bots, get_user_from_id, get_role_from_id
 
 Base = declarative_base()
 engine = create_engine(os.getenv('SIMULATOR_DB'))
@@ -146,11 +146,32 @@ def get_start_nodes(members, session):
         start_nodes.append(MarkovNode.get(MESSAGE_START, sim_member, session))
     return start_nodes
 
-def create_message(member, session):
+def prevent_pings(word, guild, session):
+    if word[0] == '<' and word[-1] == '>' and word[1] == '@':
+        if word[2] == '!':
+            member = get_user_from_id(int(word[3:-1]), guild)
+            if member:
+                name = member.nick or member.name
+                return f'@{name}'
+            else:
+                return '@REMOVED_USER' + word
+        elif word[2] =='&':
+            role = get_role_from_id(int(word[3:-1]), guild)
+            if role:
+                return f'@{role.name}'
+            else:
+                return '@REMOVED_ROLE' + word
+    elif word == '@everyone' or word == '@here':
+        return f"{word[0]}'{word[1:]}"
+    else:
+        return word
+
+def create_message(member, guild, session):
     words = [SimulatedMember.get(member, session).get_start_node(session)]
     while words[-1].word != MESSAGE_END:
         words.append(words[-1].choose_next_word(session))
-    message = ' '.join([word.word for word in words[1:-1]])
+
+    message = ' '.join([prevent_pings(word.word, guild, session) for word in words[1:-1]])
     message = f'{member.nick or member.name}:\n    {message}'
     return message
 
@@ -160,7 +181,7 @@ async def simulate(channel, session):
     for chosen_member in choices(available_members, weights=[node.count for node in start_nodes], k=randint(SIM_LENGTH_MIN, SIM_LENGTH_MAX)):
         async with channel.typing():
             start_time = time()
-            message = create_message(chosen_member, session)
+            message = create_message(chosen_member, channel.guild, session)
             try:
                 await asyncio.sleep(-(time() - start_time - randint(SIM_TIME_MIN, SIM_TIME_MAX)))
             except Exception:
