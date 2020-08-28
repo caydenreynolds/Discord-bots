@@ -4,7 +4,7 @@ import socket
 import traceback
 
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 from sqlalchemy import Column, Integer, create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
@@ -34,19 +34,21 @@ class PollIPCog(commands.Cog):
         try:
             await bot.wait_until_ready()
             session = Session()
-            hostname = socket.gethostname()
-            if socket.gethostbyname(hostname) != ip_addr:
-                ip_addr = socket.gethostbyname(hostname)
-                channels = []
-                for channel in session.query(Channel).all():
-                    c = bot.get_channel(channel.channel_id)
-                    if c:
-                        channels.append(c)
-                    else:
-                        session.delete(channel)
-                message = f"My new IP addr is {ip_addr}" 
-                for channel in channels:
-                    await channel.send(message)
+            global ip_addr
+            # if socket.gethostbyname(hostname) != ip_addr:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            ip_addr = s.getsockname()[0]
+            channels = []
+            for channel in session.query(Channel).all():
+                c = bot.get_channel(channel.channel_id)
+                if c:
+                    channels.append(c)
+                else:
+                    session.delete(channel)
+            message = f"My new IP addr is {ip_addr}" 
+            for channel in channels:
+                await channel.send(message)
         except Exception:
             traceback.print_exc()
             session.rollback()
