@@ -115,7 +115,7 @@ class ScheduledSimsCog(commands.Cog):
                     session.delete(channel)
             for channel in channels:
                 await simulate(channel, session)
-        except Exception as e:
+        except Exception:
             traceback.print_exc()
             session.rollback()
         else:
