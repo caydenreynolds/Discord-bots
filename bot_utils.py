@@ -1,6 +1,6 @@
 import string
 from functools import wraps
-from sqlalchemy import Column, Integer
+from sqlalchemy import Column, BigInteger, Integer
 from sqlalchemy.ext.declarative import declared_attr
 from discord.utils import find
 
@@ -27,6 +27,13 @@ def ignore_bots(func):
             await func(*args, **kwargs)
     return wrapper
 
+"""Make the bot register as typing while it is processing the command"""
+def typing(func):
+    @wraps(func)
+    async def wrapper(*args, **kwargs):
+        with args[0].channel.typing():
+            await func(*args, **kwargs)
+
 def remove_punctuation(punctuated_string):
     return punctuated_string.translate(str.maketrans('', '', string.punctuation))
 
@@ -46,8 +53,8 @@ class BaseMixin:
     id = Column(Integer, primary_key=True)
 
 class MemberMixin:
-    member_id = Column(Integer)
-    guild_id = Column(Integer)
+    member_id = Column(BigInteger)
+    guild_id = Column(BigInteger)
 
     def __init__(self, member=None):
         self.member_id = member.id
